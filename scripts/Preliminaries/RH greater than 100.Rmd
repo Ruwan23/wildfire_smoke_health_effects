@@ -1,0 +1,152 @@
+---
+title: "Exploring RH greater than 100"
+author: "Ruwan T"
+date: "2/19/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+#packages
+memory.limit(size=100000)
+library(haven)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(tableone)
+library(splines)
+library(tidycensus)
+library(tidyverse)
+library(lubridate)
+library(AER)
+library(knitr)
+library(splines)
+library(data.table)
+library(biglm)
+library(speedglm)
+library(sp)
+library(leaflet)
+library(raster)
+library(rgdal)
+library(geosphere)
+library(rgeos)
+library(wesanderson)
+library(stats)
+library(devtools)
+library(sf)
+library(lme4)
+library(glmmADMB)
+```
+
+
+
+```{r,cache=TRUE,eval=FALSE,include=FALSE}
+### Reading in data
+# Reading in Harvard PM2.5 data: daily zip code-level estimated mean PM2.5 concentrations from 2010-2016 in California, plus several other variables (population weights, associated census tracts, etc.)
+harvard <- readRDS("S:/Wildfire-Hoshiko/PHIRE COVARIATE DATA/Data for Analysis/CA_Harvard.rds")
+
+head(harvard)
+```
+
+## Relative Humidity (RH) > 100
+
+Reading in NOAA data
+
+```{r}
+ca_zip3 <- as.character(seq(900,961,1))
+
+noaa <- readRDS("S:/Wildfire-Hoshiko/Wildfire - RThilakaratne/PHIRE_Health_Analysis/data/Data For Analysis/CA_NOAA.rds")
+noaa2 <- noaa %>% mutate(gt100 = ifelse(RH.Mean>100,1,0))
+
+# 264 instances of RH>100. These are comprised of 20 unique dates and 152 unique zip codes. As there are several million data points in the full dataset, this issue of RH>100 is quite small
+
+noaa3 <- noaa2 %>% group_by(ZIP) %>% summarize(rh_100 = max(gt100),
+                                               mean_rh = mean(RH.Mean))
+noaa3 <- noaa3 %>% mutate(zip3 = substr(ZIP,1,3))
+ca_zip_map <- st_read("S:/Wildfire-Hoshiko/Wildfire - RThilakaratne/PHIRE_Health_Analysis/data/CA zips/tl_2019_us_zcta510/tl_2019_us_zcta510.shp")
+ca_zip_map <- ca_zip_map %>% filter(substr(GEOID10,1,3) %in% ca_zip3) %>% rename(ZIP = GEOID10)
+ca_zip_map_merge2 <- full_join(noaa3,ca_zip_map,by=c("ZIP"))
+```
+
+\newpage
+Map of Mean RH (average of daily estimates over 2010-2018) by zip code. This gives a sense of the baseline spatial distribution of RH.
+
+```{r}
+ggplot() + 
+  geom_sf(data = ca_zip_map_merge2, aes(geometry=geometry,fill=mean_rh),lwd=0) + 
+  ggtitle("Mean RH (over study period, 2010-2016 ) by zip code")
+```
+
+\newpage
+Map of zip codes with those containing at least 1 RH value above 100 highlighted in blue. 
+
+```{r}
+ggplot() + 
+  geom_sf(data = ca_zip_map_merge2, aes(geometry=geometry,fill=factor(rh_100)),lwd=0) + 
+  ggtitle("RH>100 by zip code")
+```
+
+These appear to be mostly along the northern coast, with some inland. Zoomed in maps of Los Angeles and the Bay Area are shown below.
+
+\newpage
+Same map but zoomed in on LA.
+
+```{r}
+ggplot() + 
+  geom_sf(data = ca_zip_map_merge2 %>% filter(zip3 %in% c("900","901","902","903","904","905","906","914","915")), aes(geometry=geometry,fill=factor(rh_100)),lwd=0) + 
+  ggtitle("RH>100 by zip code - Los Angeles")
+```
+
+\newpage
+Same map but zoomed in on the Bay Area.
+
+```{r}
+ggplot() + 
+  geom_sf(data = ca_zip_map_merge2 %>% filter(zip3 %in% c(seq(940,951,1))), aes(geometry=geometry,fill=factor(rh_100)),lwd=0) + 
+  ggtitle("RH>100 by zip code - Bay Area")
+```
+
+\newpage
+Below is the mean relative humidity on Jan 3, 2010, which was one of the days during which a group of zip codes had an RH>100. Those zip codes are shaded the lightest blue. 
+
+```{r}
+#Jan 3 2010
+noaa4 <- noaa2 %>% filter(Date=="2010-01-03")
+ca_zip_map_merge3 <- full_join(noaa4,ca_zip_map,by=c("ZIP"))
+ggplot() + 
+  geom_sf(data = ca_zip_map_merge3, aes(geometry=geometry,fill=RH.Mean),lwd=0) + 
+  ggtitle("Mean RH by zip code, Jan 3 2010")
+```
+
+One can see that these are, spatially, not outliers - there is a gradual color gradient around them suggesting the true values are indeed likely to be very high and do not suggest the values >100 on this day are significant deviations from their true values. It may be reasonable to impute the values as 100.
+
+```{r,eval=FALSE,include=FALSE}
+ca_zip3 <- as.character(seq(900,961,1))
+harvard_zip <- harvard %>%
+                group_by(ZIP) %>%
+                  summarize(pm25mean = mean(PM25.Mean),
+                            pm25max = max(PM25.Mean))
+harvard_summer_zip <- harvard %>%
+                filter(month(Date) %in% c(6,7,8)) %>%
+                group_by(ZIP) %>%
+                  summarize(pm25mean = mean(PM25.Mean),
+                            pm25max = max(PM25.Mean))
+
+ca_zip_map <- st_read("S:/Wildfire-Hoshiko/Wildfire - RThilakaratne/PHIRE_Health_Analysis/data/CA zips/tl_2019_us_zcta510/tl_2019_us_zcta510.shp")
+ca_zip_map <- ca_zip_map %>% filter(substr(GEOID10,1,3) %in% ca_zip3) %>% rename(ZIP = GEOID10)
+ca_zip_map_merge <- full_join(harvard_zip,ca_zip_map,by=c("ZIP"))
+# ggplot() + 
+#   geom_sf(data = ca_zip_map_merge, aes(geometry=geometry,fill=pm25mean),lwd=0) + 
+#   ggtitle("Mean PM2.5 by zip code")
+# ggplot() + 
+#   geom_sf(data = ca_zip_map_merge, aes(geometry=geometry,fill=pm25max),lwd=0) + 
+#   ggtitle("Max PM2.5 by zip code")
+
+
+
+```
+
+
+
+
+

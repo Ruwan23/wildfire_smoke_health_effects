@@ -1,0 +1,91 @@
+---
+title: "SI Table - HA risk estimates"
+author: "Ruwan T"
+date: "6/10/2021"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+```{r,include=FALSE}
+# TO PRODUCE PUBLICATION-READY WORD DOCUMENT:
+##  knit to HTML, open in browser, copy table to Excel, format in Excel then copy to Word; then added caption and footnotes in Word to produce:
+# S:\Wildfire-Hoshiko\Wildfire - RThilakaratne\PHIRE_Health_Analysis\output\Paper 1 - Tables and Figures\Table - HA risk estimates\Table SX - HA risk estimates.docx
+
+```
+
+```{r, include=FALSE}
+#packages
+memory.limit(size=100000)
+library(kableExtra)
+library(lattice)
+library(gridExtra)
+library(grid)
+library(haven)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(tableone)
+library(splines)
+library(tidycensus)
+library(tidyverse)
+library(lubridate)
+library(AER)
+library(knitr)
+library(splines)
+library(data.table)
+library(speedglm)
+library(sp)
+library(leaflet)
+library(raster)
+library(rgdal)
+library(geosphere)
+library(rgeos)
+library(wesanderson)
+library(stats)
+library(sf)
+library(lme4)
+library(weathermetrics)
+library(lubridate)
+library(effects)
+library(sjPlot)
+library(arm)
+library(broom.mixed)
+library(dlnm)
+```
+
+```{r,echo=FALSE}
+results <- readRDS("S:/Wildfire-Hoshiko/Wildfire - RThilakaratne/PHIRE_Health_Analysis/output/Risk estimate models/pdd_all_results.rds")
+
+# table version of above risk estimates and intervals
+results2 <- results %>% mutate(risk = paste(RR," (",LB,", ",UB,")",sep=""))
+table <- data.frame(Subgroup = c("Overall","Age 0-1","Age 0-4","Age 5-18","Age 19-64","Age 45-64","Age 65+","Female","Male",
+                                 "NH White","NH Black","Hispanic","NH Asian","NH Nat Am","NH Other","Public","Private"))
+Respiratory <- results2%>%filter(Outcome=="Respiratory* (Lag 0-1)")%>%dplyr::select(Subgroup,risk) %>% rename(Respiratory=risk)
+Cardiovascular <- results2%>%filter(Outcome=="Cardiovascular** (Lag 0-1)")%>%dplyr::select(Subgroup,risk) %>% rename(Cardiovascular=risk)
+Asthma <- results2%>%filter(Outcome=="Asthma (Lag 0-1)")%>%dplyr::select(Subgroup,risk) %>% rename(Asthma=risk)
+COPD <- results2%>%filter(Outcome=="COPD (Lag 0-1)")%>%dplyr::select(Subgroup,risk) %>% rename(COPD=risk)
+
+# merging in risks
+table2 <- left_join(table,Respiratory,by=c("Subgroup"))
+table3 <- left_join(table2,Asthma,by=c("Subgroup"))
+table4 <- left_join(table3,COPD,by=c("Subgroup"))
+table5 <- left_join(table4,Cardiovascular,by=c("Subgroup"))
+table5[is.na(table5)] <- "NC" # setting all missings to 0 count
+
+labels <- data.frame(Subgroup = c("Overall","Age","Age 0-1","Age 0-4","Age 5-18","Age 19-64","Age 45-64","Age 65+","Sex","Female","Male",
+                                  "Race/ethnicity","NH White","NH Black","Hispanic","NH Asian","NH Nat Am","NH Other","Insurance","Public","Private"))
+table6 <- left_join(labels,table5,by=c("Subgroup"))
+table6[is.na(table6)] <- " " # setting all missings to 0 count
+names(table6) <- c("Subgroup","Respiratory* (Lag 0-1)","Asthma (Lag 0-1)","COPD (Lag 0-1)","Cardiovascular** (Lag 0-1)")
+
+
+# output table
+table6 %>%
+  kbl() %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+

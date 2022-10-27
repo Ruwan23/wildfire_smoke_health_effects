@@ -1,0 +1,102 @@
+---
+title: "ED and hosp data time series"
+author: "Ruwan T"
+date: "6/25/2021"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r,include=FALSE}
+memory.limit(size=100000)
+library(arm)
+library(haven)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(tableone)
+library(splines)
+library(tidycensus)
+library(tidyverse)
+library(lubridate)
+library(AER)
+library(knitr)
+library(splines)
+library(data.table)
+library(speedglm)
+library(sp)
+library(leaflet)
+library(raster)
+library(rgdal)
+library(geosphere)
+library(rgeos)
+library(wesanderson)
+library(stats)
+library(sf)
+library(lme4)
+library(weathermetrics)
+library(lubridate)
+library(effects)
+library(sjPlot)
+library(arm)
+library(broom.mixed)
+
+```
+
+```{r,echo=FALSE}
+# read in data
+data <- readRDS("S:/Wildfire-Hoshiko/PHIRE OSHPD DATA/Analytic datasets/FINAL ED and PDD dataset with covariates/Asthma, CV, Resp, COPD ED and PDD data strats with covariates and HMS.rds")
+
+
+# selecting outcomes of interest
+data2 <- data %>% dplyr::select(c(serv_dt,pdd_asthma,ed_asthma,pdd_copd,ed_copd,pdd_allcause_resp,ed_allcause_resp,pdd_allcause_cv,ed_allcause_cv))
+
+# collapsing to date
+data3 <- data2 %>% 
+          group_by(serv_dt) %>% 
+          summarize(pdd_asthma_tot = sum(pdd_asthma),
+                   pdd_copd_tot = sum(pdd_copd),
+                   pdd_allcause_resp_tot = sum(pdd_allcause_resp),
+                   pdd_allcause_cv_tot = sum(pdd_allcause_cv),
+                   ed_asthma_tot = sum(ed_asthma),
+                   ed_copd_tot = sum(ed_copd),
+                   ed_allcause_resp_tot = sum(ed_allcause_resp),
+                   ed_allcause_cv_tot = sum(ed_allcause_cv))
+
+data3$weekend <- ifelse(as.character(lubridate::wday(data3$serv_dt,label=TRUE)) %in% c("Mon","Tue","Wed","Thu","Fri"),0,1)
+
+#asthma
+asthma_ed <- data3 %>% dplyr::select(serv_dt,ed_asthma_tot,weekend) %>% mutate(type = "ED")
+names(asthma_ed) <- c("serv_dt","asthma_count","weekend","type")
+asthma_pdd <- data3 %>% dplyr::select(serv_dt,pdd_asthma_tot,weekend) %>% mutate(type = "PDD")
+names(asthma_pdd) <- c("serv_dt","asthma_count","weekend","type")
+asthma_ds <- rbind(asthma_ed,asthma_pdd)
+ggplot(data=asthma_ds) + geom_point(aes(x=serv_dt,y=asthma_count,color=as.factor(weekend))) + facet_wrap(~ type,ncol=1,scales="free") + ggtitle("Asthma ED and Hosp time series, California, 2008-2016")
+
+#allcause_resp
+allcause_resp_ed <- data3 %>% dplyr::select(serv_dt,ed_allcause_resp_tot,weekend) %>% mutate(type = "ED")
+names(allcause_resp_ed) <- c("serv_dt","allcause_resp_count","weekend","type")
+allcause_resp_pdd <- data3 %>% dplyr::select(serv_dt,pdd_allcause_resp_tot,weekend) %>% mutate(type = "PDD")
+names(allcause_resp_pdd) <- c("serv_dt","allcause_resp_count","weekend","type")
+allcause_resp_ds <- rbind(allcause_resp_ed,allcause_resp_pdd)
+ggplot(data=allcause_resp_ds) + geom_point(aes(x=serv_dt,y=allcause_resp_count,color=as.factor(weekend))) + facet_wrap(~ type,ncol=1,scales="free") + ggtitle("All-cause respiratory ED and Hosp time series, California, 2008-2016")
+
+#copd
+copd_ed <- data3 %>% dplyr::select(serv_dt,ed_copd_tot,weekend) %>% mutate(type = "ED")
+names(copd_ed) <- c("serv_dt","copd_count","weekend","type")
+copd_pdd <- data3 %>% dplyr::select(serv_dt,pdd_copd_tot,weekend) %>% mutate(type = "PDD")
+names(copd_pdd) <- c("serv_dt","copd_count","weekend","type")
+copd_ds <- rbind(copd_ed,copd_pdd)
+ggplot(data=copd_ds) + geom_point(aes(x=serv_dt,y=copd_count,color=as.factor(weekend))) + facet_wrap(~ type,ncol=1,scales="free") + ggtitle("COPD ED and Hosp time series, California, 2008-2016")
+
+#allcause_cv
+allcause_cv_ed <- data3 %>% dplyr::select(serv_dt,ed_allcause_cv_tot,weekend) %>% mutate(type = "ED")
+names(allcause_cv_ed) <- c("serv_dt","allcause_cv_count","weekend","type")
+allcause_cv_pdd <- data3 %>% dplyr::select(serv_dt,pdd_allcause_cv_tot,weekend) %>% mutate(type = "PDD")
+names(allcause_cv_pdd) <- c("serv_dt","allcause_cv_count","weekend","type")
+allcause_cv_ds <- rbind(allcause_cv_ed,allcause_cv_pdd)
+ggplot(data=allcause_cv_ds) + geom_point(aes(x=serv_dt,y=allcause_cv_count,color=as.factor(weekend))) + facet_wrap(~ type,ncol=1,scales="free") + ggtitle("All-cause CV ED and Hosp time series, California, 2008-2016")
+
+
+```

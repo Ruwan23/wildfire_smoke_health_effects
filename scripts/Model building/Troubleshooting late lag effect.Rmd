@@ -1,0 +1,308 @@
+---
+title: "Comparing lag effects"
+author: "Ruwan T"
+date: "4/8/2021"
+output: word_document
+---
+```{r,include=FALSE}
+#packages
+memory.limit(size=100000)
+library(arm)
+library(haven)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(tableone)
+library(splines)
+library(tidycensus)
+library(tidyverse)
+library(lubridate)
+library(AER)
+library(knitr)
+library(data.table)
+library(speedglm)
+library(sp)
+library(leaflet)
+library(raster)
+library(rgdal)
+library(geosphere)
+library(rgeos)
+library(wesanderson)
+library(stats)
+library(sf)
+library(lme4)
+library(weathermetrics)
+library(effects)
+library(sjPlot)
+library(broom.mixed)
+library(dlnm)
+library(forecast)
+library(readxl)
+library(biglm)
+
+```
+
+## Reading in data
+```{r,cache=TRUE}
+# Reading in dataset
+data4 <- readRDS("S:/Wildfire-Hoshiko/PHIRE OSHPD DATA/Analytic datasets/FINAL ED and PDD dataset with covariates/Asthma, CV, Resp, COPD ED and PDD data strats with covariates and HMS.rds")
+
+# Data header
+head(data4)
+# 
+zips <- sample(unique(data4$PATZIP),10)
+data4 <- data4 %>% filter(PATZIP %in% zips)
+
+unname <- function(x) {
+  names(x) <- NULL  
+  x
+}
+
+
+```
+
+
+## Running DLM
+```{r,cache=TRUE}
+zip3list <- unique(data4$zip3) # getting list of ZIP3's in dataset
+pm25_coefs_dlm5_zip3 <- data.frame(matrix(nrow=length(zip3list),ncol=8,NA))  # initializing storage dataframe
+for (i in 1:length(zip3list)){ # cycling through list of zip3's
+        zip_3 <- as.character(zip3list[i]) # storing current zip3
+        subset <- data4 %>% filter(zip3==zip_3) # subsetting to current zip3
+        region <- subset$region[1] # identifying corresponding region
+        cb05.pm.2 <- crossbasis(subset$pm25, lag=5, argvar=list(fun="lin"),arglag=list(fun="integer"),group=subset$PATZIP) # buildling crossbasis (lagged varibales)
+        model_dlm_05 <- speedglm(ed_asthma ~ cb05.pm.2 + ns(hi,3) + dow + ns(dayseq,72) + PATZIP + offset(log(popsize)),data = subset,family=poisson(link="log")) # running model
+        coefs <- as.character(coef(model_dlm_05)[2:7]) # store PM coefficients
+        pm25_coefs_dlm5_zip3[i,] <- c(zip_3,region,coefs) # store zip3, region, and coefs as a row in storage dataframe
+        rr <- exp(unname(coef(model_dlm_05)*10)[2:7]) # scaling to 10 unit increase and exponentiating to get RR
+        lb <- exp((unname(coef(model_dlm_05))[2:7]-(unname(sqrt(diag(vcov(model_dlm_05))))[2:7])*1.96)*10) # lower 95% CI bound
+        ub <- exp((unname(coef(model_dlm_05))[2:7]+(unname(sqrt(diag(vcov(model_dlm_05))))[2:7])*1.96)*10) #upper 95% CI bound
+        
+        # plotting PM coefficients (same-day and lags) for the current ZIP3
+        lag <- c(0,1,2,3,4,5)
+        toplot <- data.frame(rr,lb,ub,lag)
+        names(toplot) <- c("RR","LB","UB","Lag")
+        
+        print(ggplot(data=toplot,aes(x=Lag,y=RR)) +
+          geom_point() +
+          geom_errorbar(aes(ymin=LB,ymax=UB)) +
+                ggtitle(paste("ZIP3 ",zip_3,", ",region,":"," 6-day DLM",sep="")))
+}
+names(pm25_coefs_dlm5_zip3) <- c("ZIP3","Region","Lag0","Lag1","Lag2","Lag3","Lag4","Lag5")
+pm25_coefs_dlm5_zip3_2 <- cbind(pm25_coefs_dlm5_zip3[,1:2],exp(sapply(pm25_coefs_dlm5_zip3[,3:8],function(x) as.numeric(x))))
+```
+
+
+## ZIP3 map
+```{r,cache=TRUE,eval=FALSE}
+# creating ZIP3 map
+ZIP3shapes <- readRDS("S:/Wildfire-Hoshiko/PHIRE COVARIATE DATA/ZIP3Shapes.rds")
+ZIP3shapes$ZIP3 <- as.numeric(ZIP3shapes$ZIP3)
+ZIP3shapesCA <- ZIP3shapes %>% filter(ZIP3<=966 & ZIP3>=900)
+
+```
+
+## comparing zip3's where issue exists vs not
+```{r,cache=TRUE,eval=FALSE}
+# identifying elevated late lag effect issue (defined as last lag having greater effect than other lags)
+pm25_coefs_dlm5_zip3_3 <- pm25_coefs_dlm5_zip3_2 %>% 
+                                mutate(issue = ifelse(Lag5>Lag1 & Lag5>Lag2 & Lag5>Lag3 & Lag5>Lag4,1,0),
+                                       ZIP3 = as.numeric(ZIP3))
+
+# merging to map
+ZIP3shapesCA_issue <- inner_join(ZIP3shapesCA,pm25_coefs_dlm5_zip3_3,by=c("ZIP3"))
+ZIP3shapesCA_issue <- ZIP3shapesCA_issue %>% mutate(issue2 = factor(x=issue,levels=c("0","1"),labels = c("No","Yes")))
+ggplot() +
+  geom_sf(data=ZIP3shapesCA_issue, aes(fill=issue2),color=NA) +
+  labs(fill="Lag5 > Lag1-Lag4") +
+  ggtitle("Issue of Lag5 being greater than Lags 1-4")
+
+
+```
+
+
+## 6-day DLM zip random intercept meta-analytic approach
+```{r}
+# 6-day DLM meta-analytic approach
+zip3list <- unique(data4$zip3)
+pm25_coefs_dlm5_zip3 <- data.frame(matrix(nrow=length(zip3list),ncol=14,NA))
+for (i in 1:length(zip3list)){
+        zip_3 <- as.character(zip3list[i])
+        subset <- data4 %>% filter(zip3==zip_3)
+        region <- subset$region[1]
+        cb05.pm <- crossbasis(subset$pm25, lag=5, argvar=list(fun="lin"),arglag=list(fun="integer"),group=subset$PATZIP)
+        tic <- Sys.time()
+        subset$PATZIP <- as.factor(subset$PATZIP)
+        model_dlm_05 <- glmer(ed_asthma ~ cb05.pm + ns(hi,3) + dow + ns(dayseq,72) + (1|PATZIP),data = subset,family=poisson(link="log"),nAGQ = 0)
+        toc <- Sys.time()
+        toc-tic
+        coefs <- (unname(fixef(model_dlm_05))*10)[2:7] # save coefs
+        se <- (unname(se.fixef(model_dlm_05))*10)[2:7] # save SE's
+        pm25_coefs_dlm5_zip3[i,] <- c(zip_3,region,coefs,se) # store in dataframe
+        
+        # plot risk
+        rr <- exp((unname(fixef(model_dlm_05))*10)[2:7])
+        lb <- exp( (unname(fixef(model_dlm_05))*10)[2:7] - (unname(se.fixef(model_dlm_05))*10)[2:7])
+        ub <- exp( (unname(fixef(model_dlm_05))*10)[2:7] + (unname(se.fixef(model_dlm_05))*10)[2:7])
+
+        lag <- c(0,1,2,3,4,5)
+        toplot <- data.frame(rr,lb,ub,lag)
+        names(toplot) <- c("RR","LB","UB","Lag")
+
+        print(ggplot(data=toplot,aes(x=Lag,y=RR)) +
+          geom_point() +
+          geom_errorbar(aes(ymin=LB,ymax=UB)) +
+                ggtitle(paste("ZIP3 ",zip_3,", ",region,":"," 6-day DLM",sep="")))
+        print(i)
+
+}
+names(pm25_coefs_dlm5_zip3) <- c("ZIP3","Region","PE_Lag0","PE_Lag1","PE_Lag2","PE_Lag3","PE_Lag4","PE_Lag5","SE_Lag0","SE_Lag1","SE_Lag2","SE_Lag3","SE_Lag4","SE_Lag5")
+
+# meta analysis
+results <- pm25_coefs_dlm5_zip3
+results <- cbind(results[,1:2],sapply(results[,3:14],function(x) as.numeric(x)))
+
+# random effects meta analysis to get overall effects by lag
+lag0 <- meta.summaries(d=results$PE_Lag0,se=results$SE_Lag0,method="random",logscale=TRUE)
+lag1 <- meta.summaries(d=results$PE_Lag1,se=results$SE_Lag1,method="random",logscale=TRUE)
+lag2 <- meta.summaries(d=results$PE_Lag2,se=results$SE_Lag2,method="random",logscale=TRUE)
+lag3 <- meta.summaries(d=results$PE_Lag3,se=results$SE_Lag3,method="random",logscale=TRUE)
+lag4 <- meta.summaries(d=results$PE_Lag4,se=results$SE_Lag4,method="random",logscale=TRUE)
+lag5 <- meta.summaries(d=results$PE_Lag5,se=results$SE_Lag5,method="random",logscale=TRUE)
+
+# plotting meta analyzed effects
+rr <- c(exp(lag0$summary),exp(lag1$summary),exp(lag2$summary),exp(lag3$summary),exp(lag4$summary),exp(lag5$summary))
+lb <- c(exp(lag0$summary-1.96*lag0$se.summary),exp(lag1$summary-1.96*lag1$se.summary),exp(lag2$summary-1.96*lag2$se.summary),exp(lag3$summary-1.96*lag3$se.summary),exp(lag4$summary-1.96*lag4$se.summary),exp(lag5$summary-1.96*lag5$se.summary))
+ub <- c(exp(lag0$summary+1.96*lag0$se.summary),exp(lag1$summary+1.96*lag1$se.summary),exp(lag2$summary+1.96*lag2$se.summary),exp(lag3$summary+1.96*lag3$se.summary),exp(lag4$summary+1.96*lag4$se.summary),exp(lag5$summary+1.96*lag5$se.summary))
+
+lag <- c(0,1,2,3,4,5)
+toplot <- data.frame(rr,lb,ub,lag)
+names(toplot) <- c("RR","LB","UB","Lag")
+
+print(ggplot(data=toplot,aes(x=Lag,y=RR)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=LB,ymax=UB)) +
+  ggtitle("6-day DLM summary effects and confidence intervals"))
+```
+
+## Creating randomized PM2.5 within each zip
+```{r,eval=FALSE}
+time_series <- data.frame(data4[,c("PATZIP","serv_dt","pm25_residual_cz")]) # extracting PM residaul time series
+zips <- unique(time_series$PATZIP) # save zips to cycle through for randomization (want to do randomization within each zip time series, not across)
+time_series_random <- c()
+for (i in 1:length(zips)){
+  sub <- time_series %>% filter(PATZIP==zips[i])
+  sub[,"pm25_residual_cz"] <- sample(sub[,"pm25_residual_cz"]) # randomization (randomly sampling without replacement)
+  time_series_random <- rbind(time_series_random,sub)
+  print(i)
+}
+names(time_series_random) <- c("PATZIP","serv_dt","pm25_residual_cz_rand")
+#merge back with dataset
+data5 <- inner_join(data4,time_series_random,by=c("PATZIP","serv_dt"))
+data6 <- data5 %>% filter(region=="San Diego - Main")
+```
+
+## 6-day DLM zip random intercept single model approach
+```{r,eval=FALSE}
+# original PM2.5
+cb05.pm <- crossbasis(data5$pm25_residual_cz, lag=5, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data5$PATZIP)
+        model_dlm_05 <- glmer(ed_asthma ~ cb05.pm + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data5,family=poisson(link="log"),nAGQ = 0)
+
+ rr <- exp((unname(fixef(model_dlm_05))*10)[2:7])
+        lb <- exp( (unname(fixef(model_dlm_05))*10)[2:7] - (unname(se.fixef(model_dlm_05))*10)[2:7])
+        ub <- exp( (unname(fixef(model_dlm_05))*10)[2:7] + (unname(se.fixef(model_dlm_05))*10)[2:7])
+        
+        lag <- c(0,1,2,3,4,5)
+        toplot <- data.frame(rr,lb,ub,lag)
+        names(toplot) <- c("RR","LB","UB","Lag")
+        
+        print(ggplot(data=toplot,aes(x=Lag,y=RR)) +
+          geom_point() +
+          geom_errorbar(aes(ymin=LB,ymax=UB)) +
+             ylim(0.99, 1.05) +
+                ggtitle("6-day DLM: Zip code random intercept model"))
+```
+
+## 6-day DLM zip random intercept model approach, randomized time series
+```{r,eval=FALSE}
+
+
+cb05.pm <- crossbasis(data5$pm25_residual_cz_rand, lag=5, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data5$PATZIP) # creating crossbasis from randomized PM time series
+TIC <- Sys.time()
+model_dlm_5_rand <- glmer(ed_asthma ~ cb05.pm + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data5,family=poisson(link="log"),nAGQ = 0)
+TOC <- Sys.time()
+TOC-TIC
+
+rr <- exp((unname(fixef(model_dlm_5_rand))*10)[2:7])
+lb <- exp( (unname(fixef(model_dlm_5_rand))*10)[2:7] - (unname(se.fixef(model_dlm_5_rand))*10)[2:7])
+ub <- exp( (unname(fixef(model_dlm_5_rand))*10)[2:7] + (unname(se.fixef(model_dlm_5_rand))*10)[2:7])
+
+lag <- seq(0,5)
+toplot <- data.frame(rr,lb,ub,lag)
+names(toplot) <- c("RR","LB","UB","Lag")
+
+print(ggplot(data=toplot,aes(x=Lag,y=RR)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=LB,ymax=UB)) +
+             ylim(0.99, 1.05) +
+        ggtitle("6-day DLM: Zip code random intercept model, randomized PM"))
+
+
+
+```
+
+## 6-day DLM zip3 + offset(log(popsize)) model approach
+```{r,eval=FALSE}
+# original PM2.5
+cb05.pm <- crossbasis(data5$pm25_residual_cz, lag=5, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data5$PATZIP)
+        model_dlm_05_old <- speedglm(ed_asthma ~ cb05.pm + ns(hi,3) + dow + zip3 + ns(dayseq,36) + offset(log(popsize)),data = data5,family=poisson(link="log"))
+
+ rr <- exp(unname(coef(model_dlm_05_old)*10)[2:7])
+lb <- exp((unname(coef(model_dlm_05_old))[2:7]-(unname(sqrt(diag(vcov(model_dlm_05_old))))[2:7])*1.96)*10)
+ub <- exp((unname(coef(model_dlm_05_old))[2:7]+(unname(sqrt(diag(vcov(model_dlm_05_old))))[2:7])*1.96)*10)
+        
+        lag <- c(0,1,2,3,4,5)
+        toplot <- data.frame(rr,lb,ub,lag)
+        names(toplot) <- c("RR","LB","UB","Lag")
+        
+        print(ggplot(data=toplot,aes(x=Lag,y=RR)) +
+          geom_point() +
+          geom_errorbar(aes(ymin=LB,ymax=UB)) +
+             ylim(0.99, 1.05) +
+                ggtitle("6-day DLM: zip3 + offset(log(popsize)) model"))
+```
+
+## 6-day DLM zip3 + offset(log(popsize)) model approach, randomized time series
+```{r,eval=FALSE}
+
+
+cb05.pm <- crossbasis(data5$pm25_residual_cz_rand, lag=5, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data5$PATZIP) # creating crossbasis from randomized time series
+TIC <- Sys.time()
+model_dlm_5_rand_old <- speedglm(ed_asthma ~ cb05.pm + ns(hi,3) + dow + zip3 + ns(dayseq,36) + offset(log(popsize)) ,data = data5,family=poisson(link="log"))
+TOC <- Sys.time()
+TOC-TIC
+
+ rr <- exp(unname(coef(model_dlm_5_rand_old)*10)[2:7])
+lb <- exp((unname(coef(model_dlm_5_rand_old))[2:7]-(unname(sqrt(diag(vcov(model_dlm_5_rand_old))))[2:7])*1.96)*10)
+ub <- exp((unname(coef(model_dlm_5_rand_old))[2:7]+(unname(sqrt(diag(vcov(model_dlm_5_rand_old))))[2:7])*1.96)*10)
+
+lag <- seq(0,5)
+toplot <- data.frame(rr,lb,ub,lag)
+names(toplot) <- c("RR","LB","UB","Lag")
+
+print(ggplot(data=toplot,aes(x=Lag,y=RR)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=LB,ymax=UB)) +
+             ylim(0.99, 1.05) +
+        ggtitle("6-day DLM: zip3 + offset(log(popsize)) model, randomized PM"))
+
+
+
+```
+
+
+
+
+
+

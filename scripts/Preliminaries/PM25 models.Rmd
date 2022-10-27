@@ -1,0 +1,170 @@
+---
+title: "Exploratory analyses of Harvard PM2.5 data"
+author: "Ruwan T"
+date: "2/19/2021"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+#packages
+memory.limit(size=100000)
+library(haven)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(tableone)
+library(splines)
+library(tidycensus)
+library(tidyverse)
+library(lubridate)
+library(AER)
+library(knitr)
+library(splines)
+library(data.table)
+library(biglm)
+library(speedglm)
+library(sp)
+library(leaflet)
+library(raster)
+library(rgdal)
+library(geosphere)
+library(rgeos)
+library(wesanderson)
+library(stats)
+library(devtools)
+library(sf)
+library(lme4)
+library(glmmADMB)
+knitr::opts_chunk$set(message=FALSE,cache=TRUE)
+```
+
+### Reading in data
+Reading in Harvard PM2.5 data: daily zip code-level estimated mean PM2.5 concentrations from 2010-2016 in California, plus several other variables (population weights, associated census tracts, etc.)
+
+```{r}
+harvard <- readRDS("S:/Wildfire-Hoshiko/PHIRE COVARIATE DATA/Data For Analysis/CA_Harvard.rds")
+head(harvard)
+```
+
+## Histogram and spatial distribution
+Histogram of mean of estimated PM2.5 concentrations by zip code.
+
+```{r}
+# Calculating zip-level PM2.5 mean and max
+ca_zip3 <- as.character(seq(900,961,1))
+harvard_zip <- harvard %>%
+                group_by(ZIP) %>%
+                  summarize(pm25mean = mean(PM25.Mean),
+                            pm25max = max(PM25.Mean))
+ggplot(data=harvard_zip) +
+  geom_histogram(aes(pm25mean),fill="white",color="black") +
+  xlab("PM2.5 concentration (micrograms/cubic meter)") +
+  ggtitle("Histogram of mean PM2.5 concentrations (California, 2010-2016)")
+```
+\newpage
+Spatial distribution of mean and max PM2.5 concentrations by zip code.
+```{r}
+ca_zip_map <- st_read("S:/Wildfire-Hoshiko/PHIRE COVARIATE DATA/CA zips/tl_2019_us_zcta510/tl_2019_us_zcta510.shp")
+ca_zip_map <- ca_zip_map %>% filter(substr(GEOID10,1,3) %in% ca_zip3) %>% rename(ZIP = GEOID10)
+ca_zip_map_merge <- full_join(harvard_zip,ca_zip_map,by=c("ZIP")) # adding PM as attribute to shapefile
+ggplot(data = ca_zip_map_merge) + 
+  geom_sf(aes(geometry=geometry,fill=pm25mean),lwd=0,color=NA) + 
+  ggtitle("Mean PM2.5 by zip code (California, 2010-2016)")
+ggplot(data = ca_zip_map_merge) + 
+  geom_sf(aes(geometry=geometry,fill=pm25max),lwd=0,color=NA) + 
+  ggtitle("Max PM2.5 by zip code (California, 2010-2016)")
+```
+\newpage
+
+## Regional time series of PM2.5
+
+ZIP3-aggregated PM2.5 time series for several major areas. Aggregation to ZIP3 
+level is done by calculating daily mean of PM2.5 across all zips in the ZIP3.
+
+Each time series is followed by a plot of how model fit, according to AIC and BIC,
+change with increasing degrees of freedom in the natural cubic spline. The model
+is a linear regression with PM2.5 as the outcome and a natural cubic spline smoothing
+function of time as the predictor.
+
+$$\text{E[PM2.5] = ns(Date,df)} $$
+
+```{r}
+#time series
+locations <- c("San Francisco","Sacramento","Redding","Los Angeles","Fresno")
+locations_zip3 <-  c(940,958,960,900,937)
+dof <- c(7,14,28,42,56,70,84,98,112)
+df_per_year <- rep(dof/7,2)
+harvard$ZIP3 <- substr(harvard$ZIP,1,3)
+harvard_ts <- harvard %>% filter(ZIP3 %in% locations_zip3)
+for (i in 1:length(locations_zip3)){
+  df <- harvard_ts %>% filter(ZIP3==locations_zip3[i])
+  df2 <- df %>% group_by(ZIP3,Date)%>%summarize(pm25 = mean(PM25.Mean))
+  print(ggplot(data=df2) + geom_point(aes(x=Date,y=pm25)) + 
+          xlab("Date") + ylab("Mean PM2.5") + ggtitle(paste(locations[i],"Daily mean PM2.5 concentration (2010-2016)",sep=": ")))
+  aic <- c()
+  bic <- c()
+  for (j in 1:length(dof)){
+    m1 <- lm(pm25 ~ ns(Date,dof[j]),data=df2)
+    aic <- c(aic,AIC(m1))
+    bic <- c(bic,BIC(m1))
+  }
+  ic <- c(aic,bic)
+  ic_label <- c(rep("AIC",length(dof)),rep("BIC",length(dof)))
+  dataframe <- data.frame(ic,ic_label,df_per_year)
+  print(ggplot(data=dataframe,aes(x=df_per_year,y=ic,color=ic_label)) +
+    geom_point() +
+    scale_x_discrete(name ="NCS functions per year",
+                     limits=df_per_year) +
+    ylab("IC") + ggtitle(paste(locations[i],"spline dof/year vs. AIC, BIC - PM2.5 averaged over zips",sep=": ")))
+    aic <- c()
+  bic <- c()
+  for (j in 1:length(dof)){
+    m1 <- lm(PM25.Mean ~ ns(Date,dof[j]),data=df)
+    aic <- c(aic,AIC(m1))
+    bic <- c(bic,BIC(m1))
+  }
+  ic <- c(aic,bic)
+  ic_label <- c(rep("AIC",length(dof)),rep("BIC",length(dof)))
+  dataframe <- data.frame(ic,ic_label,df_per_year)
+  print(ggplot(data=dataframe,aes(x=df_per_year,y=ic,color=ic_label)) +
+    geom_point() +
+    scale_x_discrete(name ="NCS functions per year",
+                     limits=df_per_year) +
+    ylab("IC") + ggtitle(paste(locations[i],"spline dof/year vs. AIC, BIC - PM2.5 NOT averaged over zips",sep=": ")))
+}
+
+
+```
+
+
+## No spatial separation by ZIP3 -model fit using all PM2.5 data together
+```{r}
+aic <- c()
+bic <- c()
+for (j in 1:length(dof)){
+    m2 <- lm(PM25.Mean ~ ns(Date,dof[j]),data=df)
+    aic <- c(aic,AIC(m2))
+    bic <- c(bic,BIC(m2))
+}
+ic <- c(aic,bic)
+  ic_label <- c(rep("AIC",length(dof)),rep("BIC",length(dof)))
+  dataframe <- data.frame(ic,ic_label,df_per_year)
+  print(ggplot(data=dataframe,aes(x=df_per_year,y=ic,color=ic_label)) +
+    geom_point() +
+    scale_x_discrete(name ="NCS functions per year",
+                     limits=df_per_year) +
+    ylab("IC") + ggtitle("All of CA: spline dof/year vs. AIC, BIC"))
+
+```
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,836 @@
+---
+title: "PHIRE Data Analysis - Model building candidate models"
+author: "Ruwan T"
+date: "4/19/21"
+output:
+  word_document: default
+  pdf_document: default
+header-includes:
+- \usepackage{lscape}
+- \newcommand{\blandscape}{\begin{landscape}}
+- \newcommand{\elandscape}{\end{landscape}}
+---
+
+```{r setup, include=FALSE}
+#packages
+memory.limit(size=100000)
+library(dlnm)
+library(haven)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(tableone)
+library(splines)
+library(tidycensus)
+library(tidyverse)
+library(lubridate)
+library(AER)
+library(knitr)
+library(splines)
+library(data.table)
+library(biglm)
+library(speedglm)
+library(sp)
+library(leaflet)
+library(raster)
+library(rgdal)
+library(geosphere)
+library(rgeos)
+library(wesanderson)
+library(stats)
+library(devtools)
+library(sf)
+library(lme4)
+library(glmmADMB)
+library(weathermetrics)
+library(lubridate)
+library(effects)
+library(sjPlot)
+library(broom.mixed)
+knitr::opts_chunk$set(message=FALSE,cache=TRUE,warning=FALSE)
+```
+
+## Reading in data and creating covariates
+```{r, cache=TRUE}
+# Reading in dataset
+data4 <- readRDS("S:/Wildfire-Hoshiko/PHIRE OSHPD DATA/Analytic datasets/FINAL ED and PDD dataset with covariates/Asthma, CV, Resp, COPD ED and PDD data strats with covariates and HMS.rds")
+
+# Data header
+head(data4)
+
+#random sample of zips
+zip_count=10
+zips <- sample(unique(data4$PATZIP),zip_count)
+data4 <- data4 %>% filter(PATZIP %in% zips)
+
+```
+
+
+#---------------
+# MODEL BUILDING
+#---------------
+
+```{r}
+unname <- function(x) {
+  names(x) <- NULL  
+  x
+}
+
+
+results <- data.frame()
+```
+
+## Model 1
+```{r}
+# BASE MODEL
+# pm25
+tic <- Sys.time()
+model_1 <- speedglm(ed_asthma ~ pm25 + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_1_results <- c("asthma ~ pm25 + offset(log(popsize))",
+                     "-",
+                          
+                          round(unname((sqrt(diag(vcov(model_1)))[2])*10),8),
+                          round(unname(exp(coef(model_1)[2]*10)),5),
+                          round(unname(exp(confint.default(model_1)[2,1]*10)),5),
+                          round(unname(exp(confint.default(model_1)[2,2]*10)),5),
+                          prettyNum(round(unname(AIC(model_1)),2),big.mark = ","),
+                          prettyNum(round(unname(BIC(model_1)),2),big.mark=","))
+results <- rbind(results,model_1_results)
+summary(model_1_results)
+```
+
+\newpage
+## Model 2
+```{r}
+# pm25 + spline(4/y)
+tic <- Sys.time()
+model_spl <- speedglm(ed_asthma ~ pm25 + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_spl_results <- c("asthma ~ pm25 + ns(dayseq,36) + offset(log(popsize))",
+                       "+ spline",
+                     
+                     round(unname((sqrt(diag(vcov(model_spl)))[2])*10),8),
+                     round(unname(exp(coef(model_spl)[2]*10)),5),
+                     round(unname(exp(confint.default(model_spl)[2,1]*10)),5),
+                     round(unname(exp(confint.default(model_spl)[2,2]*10)),5),
+                     prettyNum(round(unname(AIC(model_spl)),2),big.mark = ","),
+                     prettyNum(round(unname(BIC(model_spl)),2),big.mark=","))
+results <- rbind(results,model_spl_results)
+summary(model_spl)
+```
+
+\newpage
+## Model 3
+```{r}
+# pm25 + DOW + spline(4/y)
+tic <- Sys.time()
+model_spl_dow <- speedglm(ed_asthma ~ pm25 + dow + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_spl_dow_results <- c("asthma ~ pm25 + dow + ns(dayseq,36) + offset(log(popsize))",
+                              "+ day-of-week",
+                      
+                      round(unname((sqrt(diag(vcov(model_spl_dow)))[2])*10),8),
+                      round(unname(exp(coef(model_spl_dow)[2]*10)),5),
+                      round(unname(exp(confint.default(model_spl_dow)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_spl_dow)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_spl_dow)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_spl_dow)),2),big.mark=","))
+results <- rbind(results,model_spl_dow_results)
+summary(model_spl_dow)
+```
+
+\newpage
+## Model 4
+```{r}
+# pm25 + DOW + heat index + spline(4/y)
+tic <- Sys.time()
+model_spl4_hi_dow <- speedglm(ed_asthma ~ pm25 + ns(hi,3) + dow + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_spl4_hi_dow_results <- c("asthma ~ pm25 + ns(hi,3) + dow + ns(dayseq,36) + offset(log(popsize))",
+                          "+ heat index",
+                     
+                     round(unname((sqrt(diag(vcov(model_spl4_hi_dow)))[2])*10),8),
+                     round(unname(exp(coef(model_spl4_hi_dow)[2]*10)),5),
+                     round(unname(exp(confint.default(model_spl4_hi_dow)[2,1]*10)),5),
+                     round(unname(exp(confint.default(model_spl4_hi_dow)[2,2]*10)),5), 
+                     prettyNum(round(unname(AIC(model_spl4_hi_dow)),2),big.mark = ","),
+                     prettyNum(round(unname(BIC(model_spl4_hi_dow)),2),big.mark=","))
+results <- rbind(results,model_spl4_hi_dow_results)
+summary(model_spl4_hi_dow)
+```
+
+\newpage
+## Model 4a - ZIP3
+```{r}
+# pm25 + DOW + heat index + spline(4/y)
+tic <- Sys.time()
+model_spl4_hi_dow <- speedglm(ed_asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_spl4_hi_dow_results <- c("asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,36) + offset(log(popsize))",
+                          "+ zip3",
+                     
+                     round(unname((sqrt(diag(vcov(model_spl4_hi_dow)))[2])*10),8),
+                     round(unname(exp(coef(model_spl4_hi_dow)[2]*10)),5),
+                     round(unname(exp(confint.default(model_spl4_hi_dow)[2,1]*10)),5),
+                     round(unname(exp(confint.default(model_spl4_hi_dow)[2,2]*10)),5), 
+                     prettyNum(round(unname(AIC(model_spl4_hi_dow)),2),big.mark = ","),
+                     prettyNum(round(unname(BIC(model_spl4_hi_dow)),2),big.mark=","))
+results <- rbind(results,model_spl4_hi_dow_results)
+summary(model_spl4_hi_dow)
+```
+
+\newpage
+## Model 4b
+```{r}
+# pm25 + DOW + heat index + spline(5/y)
+tic <- Sys.time()
+model_spl5_hi_dow <- speedglm(ed_asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,45) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_spl5_hi_dow_results <- c("asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,45) + offset(log(popsize))",
+                          "spline 5/y",
+                     
+                     round(unname((sqrt(diag(vcov(model_spl5_hi_dow)))[2])*10),8),
+                     round(unname(exp(coef(model_spl5_hi_dow)[2]*10)),5),
+                     round(unname(exp(confint.default(model_spl5_hi_dow)[2,1]*10)),5),
+                     round(unname(exp(confint.default(model_spl5_hi_dow)[2,2]*10)),5),
+                     prettyNum(round(unname(AIC(model_spl5_hi_dow)),2),big.mark = ","),
+                     prettyNum(round(unname(BIC(model_spl5_hi_dow)),2),big.mark=","))
+results <- rbind(results,model_spl5_hi_dow_results)
+summary(model_spl5_hi_dow)
+```
+
+\newpage
+## Model 4c
+```{r}
+# pm25 + DOW + heat index + spline(6/y)
+tic <- Sys.time()
+model_spl6_hi_dow <- speedglm(ed_asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,54) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_spl6_hi_dow_results <- c("asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,54) + offset(log(popsize))",
+                          "spline 6/y",
+                     
+                     round(unname((sqrt(diag(vcov(model_spl6_hi_dow)))[2])*10),8),
+                     round(unname(exp(coef(model_spl6_hi_dow)[2]*10)),5),
+                     round(unname(exp(confint.default(model_spl6_hi_dow)[2,1]*10)),5),
+                     round(unname(exp(confint.default(model_spl6_hi_dow)[2,2]*10)),5),
+                     prettyNum(round(unname(AIC(model_spl6_hi_dow)),2),big.mark = ","),
+                     prettyNum(round(unname(BIC(model_spl6_hi_dow)),2),big.mark=","))
+results <- rbind(results,model_spl6_hi_dow_results)
+summary(model_spl6_hi_dow)
+```
+
+\newpage
+## Model 4d
+```{r}
+# pm25 + DOW + heat index + spline(7/y)
+tic <- Sys.time()
+model_spl7_hi_dow <- speedglm(ed_asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,63) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_spl7_hi_dow_results <- c("asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,63) + offset(log(popsize))",
+                          "spline 7/y",
+                     
+                     round(unname((sqrt(diag(vcov(model_spl7_hi_dow)))[2])*10),8),
+                     round(unname(exp(coef(model_spl7_hi_dow)[2]*10)),5),
+                     round(unname(exp(confint.default(model_spl7_hi_dow)[2,1]*10)),5),
+                     round(unname(exp(confint.default(model_spl7_hi_dow)[2,2]*10)),5),
+                     prettyNum(round(unname(AIC(model_spl7_hi_dow)),2),big.mark = ","),
+                     prettyNum(round(unname(BIC(model_spl7_hi_dow)),2),big.mark=","))
+results <- rbind(results,model_spl7_hi_dow_results)
+summary(model_spl7_hi_dow)
+```
+
+\newpage
+## Model 4e
+```{r}
+# pm25 + heat index + spline(8/y)
+tic <- Sys.time()
+model_spl8_hi_dow <- speedglm(ed_asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,72) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_spl8_hi_dow_results <- c("asthma ~ pm25 + ns(hi,3) + dow + zip3 + ns(dayseq,72) + offset(log(popsize))",
+                          "spline 8/y",
+                     
+                     round(unname((sqrt(diag(vcov(model_spl8_hi_dow)))[2])*10),8),
+                     round(unname(exp(coef(model_spl8_hi_dow)[2]*10)),5),
+                     round(unname(exp(confint.default(model_spl8_hi_dow)[2,1]*10)),5),
+                     round(unname(exp(confint.default(model_spl8_hi_dow)[2,2]*10)),5),
+                     prettyNum(round(unname(AIC(model_spl8_hi_dow)),2),big.mark = ","),
+                     prettyNum(round(unname(BIC(model_spl8_hi_dow)),2),big.mark=","))
+results <- rbind(results,model_spl8_hi_dow_results)
+summary(model_spl8_hi_dow)
+```
+
+\newpage
+## Model 5
+```{r}
+# pm25 ZIP3 residuals + heat index + DOW + spline(4/y)
+tic <- Sys.time()
+model_pmzip_spl_hi_dow <- speedglm(ed_asthma ~ pm25_residual_zip3 + ns(hi,3) + dow + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmzip_spl_hi_dow_results <- c("asthma ~ pm25 ZIP3 residuals + ns(hi,3) + dow + ns(dayseq,36) + offset(log(popsize))",
+                                    "PM2.5 ZIP3 residuals",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmzip_spl_hi_dow)))[2])*10),8),
+                      round(unname(exp(coef(model_pmzip_spl_hi_dow)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl_hi_dow)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl_hi_dow)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmzip_spl_hi_dow)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmzip_spl_hi_dow)),2),big.mark=","))
+results <- rbind(results,model_pmzip_spl_hi_dow_results)
+summary(model_pmzip_spl_hi_dow)
+```
+
+\newpage
+## Model 6a
+```{r}
+# pm25 ZIP3 residuals + heat index + DOW + ZIP3 + spline(4/y)
+tic <- Sys.time()
+model_pmzip_spl_hi_dow_zip3 <- speedglm(ed_asthma ~ pm25_residual_zip3 + ns(hi,3) + dow + ns(dayseq,36) + zip3 + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmzip_spl_hi_dow_zip3_results <- c("asthma ~ pm25 ZIP3 residuals + ns(hi,3) + dow + zip3 + ns(dayseq,36) + offset(log(popsize))",
+                                    "PM2.5 ZIP3 residuals + ZIP3 FE",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmzip_spl_hi_dow_zip3)))[2])*10),8),
+                      round(unname(exp(coef(model_pmzip_spl_hi_dow_zip3)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl_hi_dow_zip3)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl_hi_dow_zip3)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmzip_spl_hi_dow_zip3)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmzip_spl_hi_dow_zip3)),2),big.mark=","))
+results <- rbind(results,model_pmzip_spl_hi_dow_zip3_results)
+summary(model_pmzip_spl_hi_dow_zip3)
+```
+\newpage
+## Model 6b
+```{r}
+# pm25 ZIP3 residuals + heat index + DOW + ZIP3
+tic <- Sys.time()
+model_pmzip_spl0_hi_dow_zip3 <- speedglm(ed_asthma ~ pm25_residual_zip3 + ns(hi,3) + dow + zip3 + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmzip_spl0_hi_dow_zip3_results <- c("asthma ~ pm25 ZIP3 residuals + ns(hi,3) + dow + zip3 + offset(log(popsize))",
+                                    "PM2.5 ZIP3 residuals, no outcome spline",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmzip_spl0_hi_dow_zip3)))[2])*10),8),
+                      round(unname(exp(coef(model_pmzip_spl0_hi_dow_zip3)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl0_hi_dow_zip3)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl0_hi_dow_zip3)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmzip_spl0_hi_dow_zip3)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmzip_spl0_hi_dow_zip3)),2),big.mark=","))
+results <- rbind(results,model_pmzip_spl0_hi_dow_zip3_results)
+summary(model_pmzip_spl0_hi_dow_zip3)
+```
+
+## Model 6b.2
+```{r}
+# pm25 ZIP3 residuals + heat index + DOW + ZIP3
+tic <- Sys.time()
+model_pmzip_spl0_hi_dow_zip3 <- speedglm(ed_asthma ~ pm25_residual_zip3 + ns(hi,3) + dow + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmzip_spl0_hi_dow_zip3_results <- c("asthma ~ pm25 ZIP3 residuals + ns(hi,3) + dow + offset(log(popsize))",
+                                    "PM2.5 ZIP3 residuals, no outcome spline nor zip3",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmzip_spl0_hi_dow_zip3)))[2])*10),8),
+                      round(unname(exp(coef(model_pmzip_spl0_hi_dow_zip3)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl0_hi_dow_zip3)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl0_hi_dow_zip3)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmzip_spl0_hi_dow_zip3)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmzip_spl0_hi_dow_zip3)),2),big.mark=","))
+results <- rbind(results,model_pmzip_spl0_hi_dow_zip3_results)
+summary(model_pmzip_spl0_hi_dow_zip3)
+```
+
+\newpage
+## Model 6c
+```{r}
+# pm25 ZIP3 residuals + heat index + DOW + ZIP3 + spline(1/y)
+tic <- Sys.time()
+model_pmzip_spl1_hi_dow_zip3 <- speedglm(ed_asthma ~ pm25_residual_zip3 + ns(hi,3) + dow + zip3 + ns(dayseq,9) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmzip_spl1_hi_dow_zip3_results <- c("asthma ~ pm25 ZIP3 residuals + ns(hi,3) + dow + zip3 + ns(dayseq,9) + offset(log(popsize))",
+                                    "PM2.5 ZIP3 residuals, 1/y outcome spline",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmzip_spl1_hi_dow_zip3)))[2])*10),8),
+                      round(unname(exp(coef(model_pmzip_spl1_hi_dow_zip3)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl1_hi_dow_zip3)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl1_hi_dow_zip3)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmzip_spl1_hi_dow_zip3)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmzip_spl1_hi_dow_zip3)),2),big.mark=","))
+results <- rbind(results,model_pmzip_spl1_hi_dow_zip3_results)
+summary(model_pmzip_spl1_hi_dow_zip3)
+```
+
+\newpage
+## Model 6d
+```{r}
+# pm25 ZIP3 residuals + heat index + DOW + ZIP3 + spline(2/y)
+tic <- Sys.time()
+model_pmzip_spl2_hi_dow_zip3 <- speedglm(ed_asthma ~ pm25_residual_zip3 + ns(hi,3) + dow + zip3 + ns(dayseq, 18) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmzip_spl2_hi_dow_zip3_results <- c("asthma ~ pm25 ZIP3 residuals + ns(hi,3) + dow + zip3 + ns(dayseq,18) + offset(log(popsize))",
+                                    "PM2.5 ZIP3 residuals, 2/y outcome spline",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmzip_spl2_hi_dow_zip3)))[2])*10),8),
+                      round(unname(exp(coef(model_pmzip_spl2_hi_dow_zip3)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl2_hi_dow_zip3)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl2_hi_dow_zip3)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmzip_spl2_hi_dow_zip3)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmzip_spl2_hi_dow_zip3)),2),big.mark=","))
+results <- rbind(results,model_pmzip_spl2_hi_dow_zip3_results)
+summary(model_pmzip_spl2_hi_dow_zip3)
+```
+
+\newpage
+## Model 6e
+```{r}
+# pm25 ZIP3 residuals + heat index + DOW + ZIP3 + spline(3/y)
+tic <- Sys.time()
+model_pmzip_spl3_hi_dow_zip3 <- speedglm(ed_asthma ~ pm25_residual_zip3 + ns(hi,3) + dow + zip3 + ns(dayseq, 27) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmzip_spl3_hi_dow_zip3_results <- c("asthma ~ pm25 ZIP3 residuals + ns(hi,3) + dow + zip3 + ns(dayseq,27) + offset(log(popsize))",
+                                    "PM2.5 ZIP3 residuals, 3/y outcome spline",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmzip_spl3_hi_dow_zip3)))[2])*10),8),
+                      round(unname(exp(coef(model_pmzip_spl3_hi_dow_zip3)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl3_hi_dow_zip3)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmzip_spl3_hi_dow_zip3)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmzip_spl3_hi_dow_zip3)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmzip_spl3_hi_dow_zip3)),2),big.mark=","))
+results <- rbind(results,model_pmzip_spl3_hi_dow_zip3_results)
+summary(model_pmzip_spl3_hi_dow_zip3)
+```
+
+\newpage
+## Model 7
+```{r}
+# pm25 CZ residuals + heat index + DOW + spline(4/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + ns(dayseq,36) + offset(log(popsize))",
+                                   "PM2.5 CZ residuals",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_results)
+summary(model_pmcz_spl_hi_dow)
+```
+
+\newpage
+## Model 8
+```{r}
+# CZ residuals + heat index + DOW + CZ + spline(4/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_cz <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + cz + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_cz_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + cz + ns(dayseq,36) + offset(log(popsize))",
+                                      "PM2.5 CZ residuals + CZ FE",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_cz)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_cz)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_cz)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_cz)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_cz)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_cz)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_cz_results)
+summary(model_pmcz_spl_hi_dow_cz)
+```
+
+\newpage
+## Model 9a
+```{r}
+# CZ residuals + heat index + DOW + ZIP3 + spline(4/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_zip <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + zip3 + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_zip_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + zip3 + ns(dayseq,36) + offset(log(popsize))",
+                                       "PM2.5 CZ residuals + ZIP3 FE",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zip)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_zip)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zip)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zip)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_zip_results)
+summary(model_pmcz_spl_hi_dow_zip)
+```
+
+\newpage
+## Model 9b
+```{r}
+# CZ residuals + heat index + DOW + ZIP3 + spline(3/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_zip <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + zip3 + ns(dayseq,27) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_zip_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + zip3 + ns(dayseq,27) + offset(log(popsize))",
+                                       "PM2.5 CZ residuals + ZIP3 FE, 3/y spline",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zip)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_zip)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zip)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zip)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_zip_results)
+summary(model_pmcz_spl_hi_dow_zip)
+```
+
+\newpage
+## Model 9c
+```{r}
+# CZ residuals + heat index + DOW + ZIP3 + spline(2/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_zip <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + zip3 + ns(dayseq,18) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_zip_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + zip3 + ns(dayseq,18) + offset(log(popsize))",
+                                       "PM2.5 CZ residuals + ZIP3 FE, 2/y spline",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zip)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_zip)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zip)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zip)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_zip_results)
+summary(model_pmcz_spl_hi_dow_zip)
+```
+
+\newpage
+## Model 9d
+```{r}
+# CZ residuals + heat index + DOW + ZIP3 + spline(1/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_zip <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + zip3 + ns(dayseq,9) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_zip_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + zip3 + ns(dayseq,9) + offset(log(popsize))",
+                                       "PM2.5 CZ residuals + ZIP3 FE, 1/y spline",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zip)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_zip)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zip)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zip)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_zip_results)
+summary(model_pmcz_spl_hi_dow_zip)
+```
+
+\newpage
+## Model 9e
+```{r}
+# CZ residuals + heat index + DOW + ZIP3
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_zip <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + zip3 + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_zip_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + zip3 + offset(log(popsize))",
+                                       "PM2.5 CZ residuals + ZIP3 FE, no spline",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zip)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_zip)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zip)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zip)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zip)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_zip_results)
+summary(model_pmcz_spl_hi_dow_zip)
+```
+
+\newpage
+## Model 10
+```{r}
+# CZ residuals + heat index + DOW + HPI + spline(4/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_hpi <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + hpi + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_hpi_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + hpi + ns(dayseq,36) + offset(log(popsize))",
+                                       "PM2.5 CZ residuals + HPI(linear)",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_hpi)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_hpi)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_hpi)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_hpi)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_hpi)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_hpi)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_hpi_results)
+summary(model_pmcz_spl_hi_dow_hpi)
+```
+
+\newpage
+## Model 11
+```{r}
+# CZ residuals + heat index + DOW + HPI + HPI^2 + spline(4/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_hpi2 <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + poly(hpi,2) + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_hpi2_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + hpi + hpi^2 + ns(dayseq,36) + offset(log(popsize))",
+                                        "PM2.5 CZ residuals + HPI(quadratic)",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_hpi2)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_hpi2)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_hpi2)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_hpi2)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_hpi2)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_hpi2)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_hpi2_results)
+summary(model_pmcz_spl_hi_dow_hpi2)
+```
+
+\newpage
+## Model 12
+```{r}
+# CZ residuals + heat index + DOW + ns(HPI,3) + spline(4/y)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_nshpi <- speedglm(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + ns(hpi,3) + ns(dayseq,36) + offset(log(popsize)),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+model_pmcz_spl_hi_dow_nshpi_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + ns(hpi,3) + ns(dayseq,36) + offset(log(popsize))",
+                                         "PM2.5 CZ residuals + HPI(spline)",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_nshpi)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_nshpi)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_nshpi)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_nshpi)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_nshpi)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_nshpi)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_nshpi_results)
+summary(model_pmcz_spl_hi_dow_nshpi)
+```
+
+\newpage
+## Model 13
+```{r}
+# CZ residuals + heat index + DOW + spline(4/y) + (1|PATZIP)
+tic <- Sys.time()
+model_pmcz_spl_hi_dow_zipri <- glmer(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data4,family=poisson(link="log"))
+toc <- Sys.time()
+
+model_pmcz_spl_hi_dow_zipri_results <- c("asthma ~ pm25 CZ residuals + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP)",
+                                         "+ PATZIP rand intercept",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zipri)))[2])*10),8),
+                      round(unname(exp(coef(model_pmcz_spl_hi_dow_zipri)[2]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zipri)[2,1]*10)),5),
+                      round(unname(exp(confint.default(model_pmcz_spl_hi_dow_zipri)[2,2]*10)),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zipri)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zipri)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_zipri_results)
+summary(model_pmcz_spl_hi_dow_zipri)
+```
+
+\newpage
+## Comparing DLMs
+```{r}
+data5 <- data4 %>%
+  group_by(PATZIP) %>%
+  mutate(pm25_residual_cz_lag1 = lag(pm25_residual_cz, n = 1), 
+         pm25_residual_cz_lag2 = lag(pm25_residual_cz, n = 2),
+         pm25_residual_cz_lag3 = lag(pm25_residual_cz, n = 3),
+         pm25_residual_cz_lag4 = lag(pm25_residual_cz, n = 4),
+         pm25_residual_cz_lag5 = lag(pm25_residual_cz, n = 5),
+         pm25_residual_cz_lag6 = lag(pm25_residual_cz, n = 6),
+         pm25_residual_cz_lag7 = lag(pm25_residual_cz, n = 7),
+         pm25_residual_cz_lag8 = lag(pm25_residual_cz, n = 8),
+         pm25_residual_cz_lag9 = lag(pm25_residual_cz, n = 9),
+         pm25_residual_cz_lag10 = lag(pm25_residual_cz, n = 10),
+         pm25_residual_cz_lag11 = lag(pm25_residual_cz, n = 11),
+         pm25_residual_cz_lag12 = lag(pm25_residual_cz, n = 12),
+         pm25_residual_cz_lag13 = lag(pm25_residual_cz, n = 13),
+         pm25_residual_cz_lag14 = lag(pm25_residual_cz, n = 14),
+         pm25_residual_cz_lag15 = lag(pm25_residual_cz, n = 15),
+         pm25_residual_cz_lag16 = lag(pm25_residual_cz, n = 16),
+         pm25_residual_cz_lag17 = lag(pm25_residual_cz, n = 17),
+         pm25_residual_cz_lag18 = lag(pm25_residual_cz, n = 18),
+         pm25_residual_cz_lag19 = lag(pm25_residual_cz, n = 19),
+         pm25_residual_cz_lag20 = lag(pm25_residual_cz, n = 20),
+         pm25_residual_cz_lag21 = lag(pm25_residual_cz, n = 21)
+  )
+
+data6 <- data5 %>% filter(serv_dt >= ymd(20080201))
+
+model_pmcz_spl_hi_dow_zipri_lag0 <- glmer(ed_asthma ~ pm25_residual_cz + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+toc <- Sys.time()
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag0, "pm25_residual_cz"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag0)
+
+
+model_pmcz_spl_hi_dow_zipri_lag1 <- glmer(ed_asthma ~ pm25_residual_cz + pm25_residual_cz_lag1 + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+toc <- Sys.time()
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag1, "pm25_residual_cz + pm25_residual_cz_lag1"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag1)
+
+
+model_pmcz_spl_hi_dow_zipri_lag2 <- glmer(ed_asthma ~ pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+toc <- Sys.time()
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag2, "pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag2)
+
+model_pmcz_spl_hi_dow_zipri_lag3 <- glmer(ed_asthma ~ pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+toc <- Sys.time()
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag3, "pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag3)
+
+model_pmcz_spl_hi_dow_zipri_lag4 <- glmer(ed_asthma ~ pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+toc <- Sys.time()
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag4, "pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag4)
+
+# lags_5 <- data6 %>% dplyr::select(c("pm25_residual_cz_lag1",
+#                                     "pm25_residual_cz_lag2",
+#                                     "pm25_residual_cz_lag3",
+#                                     "pm25_residual_cz_lag4",
+#                                     "pm25_residual_cz_lag5",
+#                                     "pm25_residual_cz_lag6",
+#                                     "pm25_residual_cz_lag7"))
+# CZ residuals + heat index + DOW + spline(4/y) + (1|PATZIP)
+# tic <- Sys.time()
+# cb05.pm <- crossbasis(data4$pm25_residual_cz, lag=5, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data4$PATZIP)
+# cb05.pm <- cb05.pm[complete.cases(cb05.pm),]
+model_pmcz_spl_hi_dow_zipri_lag5 <- glmer(ed_asthma ~ pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + pm25_residual_cz_lag5 + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+toc <- Sys.time()
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag5, "pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + pm25_residual_cz_lag5"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag5)
+
+# pred1.pm <- crosspred(lags_5, model_pmcz_spl_hi_dow_zipri_lag5, at=0:10, cumul=TRUE)
+
+# model_pmcz_spl_hi_dow_zipri_lag5_results <- c("asthma ~ pm25 CZ residuals(6-day DLM) + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP)",
+#                                          "+ PATZIP rand intercept, 6-day DLM, no Jan 2008",
+#                       
+#                       round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zipri_lag5)))[2])*10),8),
+#                       round(unname(pred1.pm$allRRfit["10"]),5),
+#                       round(unname(pred1.pm$allRRlow["10"]),5),
+#                       round(unname(pred1.pm$allRRhigh["10"]),5),
+#                       prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zipri_lag5)),2),big.mark = ","),
+#                       prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zipri_lag5)),2),big.mark=","))
+# results <- rbind(results,model_pmcz_spl_hi_dow_zipri_lag5_results)
+# summary(model_pmcz_spl_hi_dow_zipri_lag5)
+
+# CZ residuals + heat index + DOW + spline(4/y) + (1|PATZIP)
+# tic <- Sys.time()
+# cb06.pm <- crossbasis(data4$pm25_residual_cz, lag=6, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data4$PATZIP)
+# cb06.pm <- cb06.pm[complete.cases(cb06.pm),]
+model_pmcz_spl_hi_dow_zipri_lag6 <- glmer(ed_asthma ~ pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + pm25_residual_cz_lag5 + pm25_residual_cz_lag6 + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+toc <- Sys.time()
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag6, "pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + pm25_residual_cz_lag5 + pm25_residual_cz_lag6"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag6)
+# pred1.pm <- crosspred(cb06.pm, model_pmcz_spl_hi_dow_zipri_lag6, at=0:10, cumul=TRUE)
+# 
+# 
+# model_pmcz_spl_hi_dow_zipri_lag6_results <- c("asthma ~ pm25 CZ residuals(7-day DLM) + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP)",
+#                                          "+ PATZIP rand intercept, 7-day DLM, no Jan 2008",
+#                       
+#                       round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zipri_lag6)))[2])*10),8),
+#                       round(unname(pred1.pm$allRRfit["10"]),5),
+#                       round(unname(pred1.pm$allRRlow["10"]),5),
+#                       round(unname(pred1.pm$allRRhigh["10"]),5),
+#                       prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zipri_lag6)),2),big.mark = ","),
+#                       prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zipri_lag6)),2),big.mark=","))
+# results <- rbind(results,model_pmcz_spl_hi_dow_zipri_lag6_results)
+# summary(model_pmcz_spl_hi_dow_zipri_lag6)
+
+# CZ residuals + heat index + DOW + spline(4/y) + (1|PATZIP)
+# tic <- Sys.time()
+# cb07.pm <- crossbasis(data4$pm25_residual_cz, lag=7, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data4$PATZIP)
+# cb07.pm <- cb07.pm[complete.cases(cb07.pm),]
+model_pmcz_spl_hi_dow_zipri_lag7 <- glmer(ed_asthma ~ pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + pm25_residual_cz_lag5 + pm25_residual_cz_lag6 + pm25_residual_cz_lag7 + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag7, "pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + pm25_residual_cz_lag5 + pm25_residual_cz_lag6 + pm25_residual_cz_lag7"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag7)
+# toc <- Sys.time()
+# 
+# pred1.pm <- crosspred(cb07.pm, model_pmcz_spl_hi_dow_zipri_lag7, at=0:10, cumul=TRUE)
+# 
+# 
+# model_pmcz_spl_hi_dow_zipri_lag7_results <- c("asthma ~ pm25 CZ residuals(8-day DLM) + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP)",
+#                                          "+ PATZIP rand intercept, 8-day DLM, no Jan 2008",
+#                       
+#                       round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zipri_lag7)))[2])*10),8),
+#                       round(unname(pred1.pm$allRRfit["10"]),5),
+#                       round(unname(pred1.pm$allRRlow["10"]),5),
+#                       round(unname(pred1.pm$allRRhigh["10"]),5),
+#                       prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zipri_lag7)),2),big.mark = ","),
+#                       prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zipri_lag7)),2),big.mark=","))
+# results <- rbind(results,model_pmcz_spl_hi_dow_zipri_lag7_results)
+# summary(model_pmcz_spl_hi_dow_zipri_lag7)
+
+model_pmcz_spl_hi_dow_zipri_lag14 <- glmer(ed_asthma ~ pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + pm25_residual_cz_lag5 + pm25_residual_cz_lag6 + pm25_residual_cz_lag7 + pm25_residual_cz_lag8 + pm25_residual_cz_lag9 + pm25_residual_cz_lag10 + pm25_residual_cz_lag11 + pm25_residual_cz_lag12 + pm25_residual_cz_lag13 + pm25_residual_cz_lag14 + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data6,family=poisson(link="log"),nAGQ = 0)
+exp(deltaMethod(model_pmcz_spl_hi_dow_zipri_lag14, "pm25_residual_cz + pm25_residual_cz_lag1 + pm25_residual_cz_lag2 + pm25_residual_cz_lag3 + pm25_residual_cz_lag4 + pm25_residual_cz_lag5 + pm25_residual_cz_lag6 + pm25_residual_cz_lag7 + pm25_residual_cz_lag8 + pm25_residual_cz_lag9 + pm25_residual_cz_lag10 + pm25_residual_cz_lag11 + pm25_residual_cz_lag12 + pm25_residual_cz_lag13 + pm25_residual_cz_lag14"))
+BIC(model_pmcz_spl_hi_dow_zipri_lag14)
+```
+
+\newpage
+## Model 17
+```{r}
+# CZ residuals + heat index + DOW + spline(4/y) + (1|PATZIP)
+tic <- Sys.time()
+cb05.pm <- crossbasis(data4$pm25_residual_cz, lag=20, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data4$PATZIP)
+model_pmcz_spl_hi_dow_zipri_lag_20 <- glmer(ed_asthma ~ cb05.pm + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP),data = data4,family=poisson(link="log"),nAGQ = 0)
+toc <- Sys.time()
+
+pred1.pm <- crosspred(cb05.pm, model_pmcz_spl_hi_dow_zipri_lag_20, at=0:10, cumul=TRUE)
+
+model_pmcz_spl_hi_dow_zipri_lag10_results <- c("asthma ~ pm25 CZ residuals(10-day DLM) + ns(hi,3) + dow + ns(dayseq,36) + (1|PATZIP)",
+                                         "+ PATZIP rand intercept, 21-day DLM",
+                      
+                      round(unname((sqrt(diag(vcov(model_pmcz_spl_hi_dow_zipri_lag10)))[2])*10),8),
+                      round(unname(pred1.pm$allRRfit["10"]),5),
+                      round(unname(pred1.pm$allRRlow["10"]),5),
+                      round(unname(pred1.pm$allRRhigh["10"]),5),
+                      prettyNum(round(unname(AIC(model_pmcz_spl_hi_dow_zipri_lag10)),2),big.mark = ","),
+                      prettyNum(round(unname(BIC(model_pmcz_spl_hi_dow_zipri_lag10)),2),big.mark=","))
+results <- rbind(results,model_pmcz_spl_hi_dow_zipri_lag10_results)
+summary(model_pmcz_spl_hi_dow_zipri_lag10)
+
+
+tic <- Sys.time()
+cb05.pm <- crossbasis(data4$pm25_residual_cz, lag=20, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data4$PATZIP)
+model_pmcz_spl_hi_dow_zipfe_lag_20 <- speedglm(ed_asthma ~ cb05.pm + ns(hi,3) + dow + ns(dayseq,36) + factor(PATZIP),data = data4,family=poisson(link="log"),sparse=FALSE)
+toc <- Sys.time()
+
+pred1.pm <- crosspred(cb05.pm, model_pmcz_spl_hi_dow_zipri_lag_20, at=0:10, cumul=TRUE)
+
+plot(pred1.pm, "slices", var=10, ci="bars", type="p", col=2, pch=19,
+ci.level=0.95, main="Lag-response a 10-unit increase")
+
+```
+
+\newpage
+## Removing outcome spline (may be redundant)
+```{r}
+# time detrend in exposure and outcome
+cb05.pm <- crossbasis(data5$pm25_residual_cz, lag=5, argvar=list(fun="lin"),arglag=list(fun="integer"),group=data5$PATZIP)
+model_dlm_05 <- glmer(ed_asthma ~ cb05.pm +
+                        ns(hi,3) + factor(dow) + ns(dayseq,36) + (1|PATZIP),data = data5,family=poisson(link="log"),nAGQ = 0)
+pred1.pm <- crosspred(cb05.pm, model_dlm_05, at=0:10, cumul=TRUE)
+round(unname(pred1.pm$allRRfit["10"]),5)
+round(unname(pred1.pm$allRRlow["10"]),5)
+round(unname(pred1.pm$allRRhigh["10"]),5)
+
+# time detrend in exposure only
+model_dlm_05_2 <- glmer(ed_asthma ~ cb05.pm +
+                        ns(hi,3) + factor(dow) + (1|PATZIP),data = data5,family=poisson(link="log"),nAGQ = 0)
+pred1.pm <- crosspred(cb05.pm, model_dlm_05_2, at=0:10, cumul=TRUE)
+round(unname(pred1.pm$allRRfit["10"]),5)
+round(unname(pred1.pm$allRRlow["10"]),5)
+round(unname(pred1.pm$allRRhigh["10"]),5)
+```
+
+\newpage
+\blandscape
+## PM2.5 coefficient comparisons
+```{r}
+results2 <- cbind(paste("Model ",c("1","2","3","4","4a","4b","4c","4d","4e","5","6a","6b","6b.2","6c","6d","6e","7","8","9a","9b","9c","9d","9e","10","11","12","13","14","15","16","17"),sep=""),results)
+results2 <- cbind(paste("Model ",c("15","16","17"),sep=""),results)
+#results2 <- cbind(paste("Model ",c("14","15","16","17"),sep=""),results)
+names(results2) <- c("Model #","Model","Model change","SE","RR","95%CI LB","95%CI UB","AIC","BIC")
+results2$`SE` <- round(as.numeric(results2$`SE`)*1000,2)
+kable(results2)
+```
+\elandscape
+
+
+
+
+
+
